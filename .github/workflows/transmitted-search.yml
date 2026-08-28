@@ -1,0 +1,82 @@
+name: Transmitted Salaf Shamela search
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_books:
+        description: "Optional max books per mode (0 = all matching categories)"
+        required: false
+        default: "0"
+        type: string
+
+jobs:
+  search:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [anti, spatial]
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    env:
+      HF_HOME: ${{ github.workspace }}/.hf-cache
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install scanner
+        run: pip install -e .
+
+      - name: Run transmitted-salaf search
+        shell: bash
+        run: |
+          ARGS=(
+            scan
+            --preset presets/salaf_space_v2.json
+            --require-name
+            --workers 12
+            --window 1800
+            --excerpt 900
+            --category "العقيدة"
+            --category "الفرق والردود"
+            --category "كتب السنة"
+            --category "شروح الحديث"
+            --category "التاريخ"
+            --category "التراجم والطبقات"
+            --category "الجوامع"
+            --category "الفتاوى"
+            --output "results/transmitted_${{ matrix.mode }}"
+          )
+
+          if [[ "${{ matrix.mode }}" == "anti" ]]; then
+            ARGS+=(--only-anti)
+          else
+            ARGS+=(--only-spatial)
+          fi
+
+          if [[ "${{ inputs.max_books }}" != "0" ]]; then
+            ARGS+=(--max-books "${{ inputs.max_books }}")
+          fi
+
+          shamela-research "${ARGS[@]}"
+
+      - name: Show summary
+        if: always()
+        shell: bash
+        run: |
+          cat "results/transmitted_${{ matrix.mode }}/summary.json" || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transmitted-${{ matrix.mode }}-results
+          path: results/transmitted_${{ matrix.mode }}/
+          if-no-files-found: warn
+          retention-days: 30
