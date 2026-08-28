@@ -1,0 +1,69 @@
+name: Pre-300 AH Shamela scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      only_anti:
+        description: "Keep only anti-spatial candidates"
+        required: false
+        default: true
+        type: boolean
+      max_books:
+        description: "Optional max books (0 = all)"
+        required: false
+        default: "0"
+        type: string
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    env:
+      HF_HOME: ${{ github.workspace }}/.hf-cache
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install scanner
+        run: pip install -e .
+
+      - name: Verify Shamela dataset access
+        run: shamela-research categories
+
+      - name: Scan direct works of authors who died by 300 AH
+        shell: bash
+        run: |
+          ARGS=(scan --death-max 300 --workers 8 --output results/direct_pre300)
+
+          if [[ "${{ inputs.only_anti }}" == "true" ]]; then
+            ARGS+=(--only-anti)
+          fi
+
+          if [[ "${{ inputs.max_books }}" != "0" ]]; then
+            ARGS+=(--max-books "${{ inputs.max_books }}")
+          fi
+
+          shamela-research "${ARGS[@]}"
+
+      - name: Show summary
+        if: always()
+        run: |
+          if [ -f results/direct_pre300/summary.json ]; then
+            cat results/direct_pre300/summary.json
+          fi
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: direct-pre300-results
+          path: results/direct_pre300/
+          if-no-files-found: warn
+          retention-days: 30
