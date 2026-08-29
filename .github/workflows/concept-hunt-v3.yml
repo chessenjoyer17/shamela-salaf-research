@@ -1,0 +1,95 @@
+name: Shamela Concept Hunt v3
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_books:
+        description: "0 = scan all books in each mode"
+        required: false
+        default: "0"
+        type: string
+      include_footnotes:
+        description: "Also scan editor footnotes (normally leave false)"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  hunt:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [tanzih, tajsim, exact]
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+
+    env:
+      HF_HOME: ${{ github.workspace }}/.hf-cache
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install scanner
+        run: pip install -e .
+
+      - name: Syntax check v3
+        run: python -m py_compile src/shamela_research/v3.py
+
+      - name: Run concept hunt
+        shell: bash
+        run: |
+          CMD=(
+            python -m shamela_research.v3 scan
+            --preset presets/concept_hunt_v3.json
+            --mode "${{ matrix.mode }}"
+            --workers 12
+            --window 1100
+            --excerpt 800
+            --output "results/v3_${{ matrix.mode }}"
+          )
+
+          if [[ "${{ matrix.mode }}" != "exact" ]]; then
+            CMD+=(
+              --category "العقيدة"
+              --category "الفرق والردود"
+              --category "كتب السنة"
+              --category "شروح الحديث"
+              --category "التاريخ"
+              --category "التراجم والطبقات"
+              --category "الجوامع"
+              --category "الفتاوى"
+            )
+          fi
+
+          if [[ "${{ inputs.include_footnotes }}" == "true" ]]; then
+            CMD+=(--include-footnotes)
+          fi
+
+          if [[ "${{ inputs.max_books }}" != "0" ]]; then
+            CMD+=(--max-books "${{ inputs.max_books }}")
+          fi
+
+          "${CMD[@]}"
+
+      - name: Show summary
+        if: always()
+        shell: bash
+        run: |
+          cat "results/v3_${{ matrix.mode }}/summary.json" || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v3-${{ matrix.mode }}-results
+          path: results/v3_${{ matrix.mode }}/
+          if-no-files-found: warn
+          retention-days: 30
